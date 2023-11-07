@@ -9,9 +9,9 @@ import (
 
 // Message represents a single maelstrom message.
 type Message struct {
-	Src  string          `json:"src,omitempty"`
-	Dest string          `json:"dest,omitempty"`
-	Body json.RawMessage `json:"body,omitempty"`
+	Src  string          `json:"src,omitempty"`  // The node ID of the source of this message
+	Dest string          `json:"dest,omitempty"` // The node ID of the destination for this message
+	Body json.RawMessage `json:"body,omitempty"` // The raw JSON body, could be any type
 }
 
 // Type returns the type of the message.
