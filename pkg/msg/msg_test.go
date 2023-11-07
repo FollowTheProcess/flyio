@@ -34,13 +34,37 @@ func TestMessageJSON(t *testing.T) {
 			NodeIDs: []string{"n1", "n2", "n3"},
 			Body: msg.Body{
 				Type:      "init",
-				ErrorText: "",
 				MessageID: 1,
-				InReplyTo: 0,
-				ErrorCode: 0,
 			},
 		}
 
 		test.Diff(t, init, want)
+	})
+	t.Run("echo", func(t *testing.T) {
+		file := filepath.Join(testdata, "echo.json")
+		contents, err := os.ReadFile(file)
+		test.Ok(t, err)
+
+		var message msg.Message
+		err = json.Unmarshal(contents, &message)
+		test.Ok(t, err)
+
+		test.Equal(t, message.Src, "c1")
+		test.Equal(t, message.Dest, "n1")
+		test.Equal(t, message.Type(), "echo")
+
+		var echo msg.Echo
+		err = json.Unmarshal(message.Body, &echo)
+		test.Ok(t, err)
+
+		want := msg.Echo{
+			Echo: "Please echo 35",
+			Body: msg.Body{
+				Type:      "echo",
+				MessageID: 1,
+			},
+		}
+
+		test.Diff(t, echo, want)
 	})
 }
