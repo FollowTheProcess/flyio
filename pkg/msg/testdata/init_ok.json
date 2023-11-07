@@ -1,0 +1,9 @@
+{
+  "src": "n1",
+  "dest": "c1",
+  "body": {
+    "in_reply_to": 1,
+    "msg_id": 1,
+    "type": "init_ok"
+  }
+}
