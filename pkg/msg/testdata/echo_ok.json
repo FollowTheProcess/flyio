@@ -2,8 +2,9 @@
   "src": "n1",
   "dest": "c1",
   "body": {
-    "in_reply_to": 2,
+    "in_reply_to": 1,
     "msg_id": 2,
-    "type": "echo_ok"
+    "type": "echo_ok",
+    "echo": "Please echo 35"
   }
 }

@@ -34,3 +34,9 @@ type Init struct {
 	NodeIDs []string `json:"node_ids,omitempty"` // The IDs of all the nodes in the network (including the recipient)
 	Body
 }
+
+// Echo represents an echo message.
+type Echo struct {
+	Echo string `json:"echo,omitempty"` // The message to echo back
+	Body
+}
