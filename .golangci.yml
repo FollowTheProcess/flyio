@@ -60,6 +60,11 @@ linters-settings:
   govet:
     enable-all: true
 
+  tagliatelle:
+    case:
+      rules:
+        json: snake # Maelstrom uses snake case messages
+
   revive:
     max-open-files: 256
     ignore-generated-header: true

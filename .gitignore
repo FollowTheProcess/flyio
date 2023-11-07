@@ -206,4 +206,7 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
+# Maelstrom stuff
+store/
+
 # End of https://www.toptal.com/developers/gitignore/api/macos,windows,linux,visualstudiocode,jetbrains+all,go
