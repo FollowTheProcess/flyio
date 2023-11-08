@@ -2,6 +2,7 @@
 package node
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,11 +31,42 @@ func New(stdin io.Reader, stdout io.Writer) *Node {
 	}
 }
 
+// Init initialises a new Node with it's config.
+func (n *Node) Init(id string, nodeIDs []string) {
+	n.id = id
+	n.nodeIDs = nodeIDs
+}
+
+// Run runs the main event handling loop in the Node.
+func (n *Node) Run() error {
+	scanner := bufio.NewScanner(n.stdin)
+	for scanner.Scan() {
+		// TODO: See if we can use the decoder after all
+		var message msg.Message
+		if err := json.Unmarshal(scanner.Bytes(), &message); err != nil {
+			return fmt.Errorf("could not decode message from stdin: %w", err)
+		}
+
+		// Dispatch to the handler
+		if err := n.Handle(message); err != nil {
+			return err
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("scanner.Err(): %w", err)
+	}
+
+	return nil
+}
+
 // Handle handles a single message into the Node, and sends the reply.
 func (n *Node) Handle(message msg.Message) error {
 	switch typ := message.Type(); typ {
 	case "init":
 		return n.handleInit(message)
+	case "echo":
+		return n.handleEcho(message)
 	default:
 		return fmt.Errorf("unhandled message type: %q", typ)
 	}
@@ -49,8 +81,7 @@ func (n *Node) handleInit(message msg.Message) error {
 	}
 
 	// Configure our node from the init message
-	n.id = received.NodeID
-	n.nodeIDs = received.NodeIDs
+	n.Init(received.NodeID, received.NodeIDs)
 	n.nextMessageID++
 
 	// Send the init_ok reply
@@ -73,6 +104,43 @@ func (n *Node) handleInit(message msg.Message) error {
 
 	if err := n.encoder.Encode(replyMessage); err != nil {
 		return fmt.Errorf("could not encode init_ok reply to JSON: %w", err)
+	}
+
+	return nil
+}
+
+// handleEcho handles an echo message and replies with an echo_ok.
+func (n *Node) handleEcho(message msg.Message) error {
+	var received msg.Echo
+	if err := json.Unmarshal(message.Body, &received); err != nil {
+		return fmt.Errorf("could not unmarshal echo body: %w", err)
+	}
+
+	n.nextMessageID++
+
+	// Send the echo_ok reply
+	replyBody := msg.Echo{
+		Echo: received.Echo,
+		Body: msg.Body{
+			Type:      "echo_ok",
+			MessageID: n.nextMessageID,
+			InReplyTo: received.MessageID,
+		},
+	}
+
+	body, err := json.Marshal(replyBody)
+	if err != nil {
+		return fmt.Errorf("could not marshal echo_ok reply body: %w", err)
+	}
+
+	replyMessage := msg.Message{
+		Src:  n.id,
+		Dest: message.Src,
+		Body: body,
+	}
+
+	if err := n.encoder.Encode(replyMessage); err != nil {
+		return fmt.Errorf("could not encode echo_ok reply to JSON: %w", err)
 	}
 
 	return nil
