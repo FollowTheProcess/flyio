@@ -6,19 +6,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/FollowTheProcess/flyio/pkg/msg"
 )
 
 // Node represents a single node in the maelstrom network.
 type Node struct {
-	stdin         io.Reader     // Messages coming into this node
-	stdout        io.Writer     // Messages being sent from this node
-	encoder       *json.Encoder // Encoder writing to stdout
-	decoder       *json.Decoder // Decoder reading from stdin
-	id            string        // The ID of this node, set from the init message
-	nodeIDs       []string      // The IDs of all the other nodes in the network (including this one)
-	nextMessageID int           // A sequence number locally unique to this node to insert into messages
+	stdin         io.Reader        // Messages coming into this node
+	stdout        io.Writer        // Messages being sent from this node
+	encoder       *json.Encoder    // Encoder writing to stdout
+	in            chan msg.Message // Messages in from stdin
+	out           chan msg.Message // Messages out to stdout
+	errs          chan error       // Errors
+	id            string           // The ID of this node, set from the init message
+	nodeIDs       []string         // The IDs of all the other nodes in the network (including this one)
+	nextMessageID int              // A sequence number locally unique to this node to insert into messages
+
+	mu sync.Mutex // Synchronise incrementing message id
+	wg sync.WaitGroup
 }
 
 // New constructs and returns a new Node.
@@ -27,7 +33,8 @@ func New(stdin io.Reader, stdout io.Writer) *Node {
 		stdin:   stdin,
 		stdout:  stdout,
 		encoder: json.NewEncoder(stdout),
-		decoder: json.NewDecoder(stdin),
+		in:      make(chan msg.Message),
+		out:     make(chan msg.Message),
 	}
 }
 
@@ -39,25 +46,66 @@ func (n *Node) Init(id string, nodeIDs []string) {
 
 // Run runs the main event handling loop in the Node.
 func (n *Node) Run() error {
-	scanner := bufio.NewScanner(n.stdin)
-	for scanner.Scan() {
-		// TODO: See if we can use the decoder after all
-		var message msg.Message
-		if err := json.Unmarshal(scanner.Bytes(), &message); err != nil {
-			return fmt.Errorf("could not decode message from stdin: %w", err)
-		}
+	n.wg.Add(1)
+	go func(wg *sync.WaitGroup) {
+		defer wg.Done()
+		n.read()
+	}(&n.wg)
 
-		// Dispatch to the handler
-		if err := n.Handle(message); err != nil {
-			return err
-		}
+	for message := range n.in {
+		n.wg.Add(1)
+		go func(wg *sync.WaitGroup, message msg.Message) {
+			defer wg.Done()
+			if err := n.Handle(message); err != nil {
+				n.errs <- err
+			}
+		}(&n.wg, message)
 	}
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scanner.Err(): %w", err)
-	}
+	go func(wg *sync.WaitGroup) {
+		defer wg.Done()
+		if err := n.write(); err != nil {
+			n.errs <- err
+		}
+	}(&n.wg)
+
+	n.wg.Wait()
 
 	return nil
+}
+
+// read reads newline separated messages from stdin and puts them on the in channel.
+func (n *Node) read() {
+	n.wg.Add(1)
+	defer n.wg.Done()
+	scanner := bufio.NewScanner(n.stdin)
+	for scanner.Scan() {
+		var message msg.Message
+		if err := json.Unmarshal(scanner.Bytes(), &message); err != nil {
+			n.errs <- fmt.Errorf("could not decode message from stdin: %w", err)
+		}
+		n.in <- message
+	}
+	if err := scanner.Err(); err != nil {
+		n.errs <- fmt.Errorf("scanner error: %v", err)
+	}
+
+	// No more input, close the in channel
+	close(n.in)
+}
+
+// write reads messages from the out channel and writes them to stdout.
+func (n *Node) write() error {
+	for {
+		select {
+		case message := <-n.out:
+			if err := n.encoder.Encode(message); err != nil {
+				return fmt.Errorf("could not encode message to JSON: %v", err)
+			}
+		case err := <-n.errs:
+			return fmt.Errorf("err: %v", err)
+		}
+	}
 }
 
 // Handle handles a single message into the Node, and sends the reply.
@@ -81,8 +129,10 @@ func (n *Node) handleInit(message msg.Message) error {
 	}
 
 	// Configure our node from the init message
+	n.mu.Lock()
 	n.Init(received.NodeID, received.NodeIDs)
 	n.nextMessageID++
+	n.mu.Unlock()
 
 	// Send the init_ok reply
 	replyBody := msg.Body{
@@ -116,7 +166,9 @@ func (n *Node) handleEcho(message msg.Message) error {
 		return fmt.Errorf("could not unmarshal echo body: %w", err)
 	}
 
+	n.mu.Lock()
 	n.nextMessageID++
+	n.mu.Unlock()
 
 	// Send the echo_ok reply
 	replyBody := msg.Echo{
