@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/FollowTheProcess/flyio/pkg/node"
@@ -50,7 +52,18 @@ func TestNodeRun(t *testing.T) {
 			want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
 			got := bytes.ReplaceAll(stdout.Bytes(), []byte("\r\n"), []byte("\n"))
 
-			test.Diff(t, string(got), string(want))
+			// The files will be in order, but since the node handles messages concurrently
+			// there is no guarantee that the order is preserved between message in and reply out
+			// nor need there be as each reply has it's in_reply_to ID. However for the test, we need
+			// deterministic output so we build slices of line separated JSON and sort them, then
+			// compare the sorted slices
+			wantLines := strings.Split(string(want), "\n")
+			gotLines := strings.Split(string(got), "\n")
+
+			slices.Sort(wantLines)
+			slices.Sort(gotLines)
+
+			test.Diff(t, gotLines, wantLines)
 		})
 	}
 }
