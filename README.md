@@ -17,7 +17,10 @@ Although I'm doing it in Go, I've chosen not to use the provided [maelstrom] lib
 - Using their library to take care of all the plumbing feels like cheating 😉
 - The way the Go implementation has been done means the same message gets `json.Marshal/Unmarshal'd` several times which isn't ideal for performance
 - Fun
-- I think I can come up with a nicer design pattern to handle messages concurrently (I guess we'll see)
+- I have a nice idea for how to handle this concurrently:
+  - A reader goroutine reading from stdin, parsing maelstrom messages and putting them on a channel to be handled
+  - Multiple goroutines pulling messages off the inbound channel, handling them in parallel, and putting replies on a reply channel
+  - A writer goroutine pulling replies from the reply channel and writing them to stdout
 
 [fly.io]: https://fly.io
 [distributed systems challenges]: https://fly.io/dist-sys

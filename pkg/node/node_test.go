@@ -49,7 +49,7 @@ func TestRead(t *testing.T) {
 
 func TestWrite(t *testing.T) {
 	stdout := &bytes.Buffer{}
-	replies := make(chan msg.Message)
+	replies := make(chan node.Result)
 
 	message := msg.Message{
 		Src:  "n1",
@@ -59,7 +59,7 @@ func TestWrite(t *testing.T) {
 
 	// Put the reply on the channel
 	go func() {
-		replies <- message
+		replies <- node.Result{Message: message}
 		close(replies)
 	}()
 
@@ -71,4 +71,58 @@ func TestWrite(t *testing.T) {
 
 	// Stdout should now have the message in it
 	test.Equal(t, strings.TrimSpace(stdout.String()), strings.TrimSpace(want))
+}
+
+func TestHandleInit(t *testing.T) {
+	stdin := &bytes.Buffer{}
+	stdout := &bytes.Buffer{}
+
+	n := node.New(stdin, stdout)
+
+	inbound := make(chan node.Result)
+	replies := make(chan node.Result)
+
+	// Put an init message on the inbound channel
+	go func() {
+		init := msg.Init{
+			NodeID:  "n1",
+			NodeIDs: []string{"n1", "n2", "n3"},
+			Body: msg.Body{
+				Type:      "init",
+				MessageID: 1,
+			},
+		}
+		initBody, err := json.Marshal(init)
+		test.Ok(t, err)
+		inbound <- node.Result{
+			Message: msg.Message{
+				Src:  "c1",
+				Dest: "n1",
+				Body: initBody,
+			},
+		}
+		close(inbound)
+	}()
+
+	n.Handle(inbound, replies)
+
+	// Read what should be an init_ok off the replies channel
+	reply, ok := <-replies
+	test.True(t, ok)
+	test.Ok(t, reply.Err)
+
+	test.Equal(t, reply.Message.Src, "n1")
+	test.Equal(t, reply.Message.Dest, "c1")
+
+	var replyBody msg.Body
+	err := json.Unmarshal(reply.Message.Body, &replyBody)
+	test.Ok(t, err)
+
+	want := msg.Body{
+		Type:      "init_ok",
+		MessageID: 1,
+		InReplyTo: 1,
+	}
+
+	test.Diff(t, replyBody, want)
 }
