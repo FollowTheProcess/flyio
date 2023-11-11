@@ -54,3 +54,16 @@ func TestNodeRun(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkNodeRun(b *testing.B) {
+	content, err := os.ReadFile(filepath.Join(test.Data(b), "bench", "bench.jsonl"))
+	test.Ok(b, err)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		n := node.New(bytes.NewReader(content), &bytes.Buffer{})
+		if err := n.Run(); err != nil {
+			b.Fatalf("node.Run() returned an error: %v", err)
+		}
+	}
+}
