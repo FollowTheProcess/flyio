@@ -3,8 +3,7 @@ package node_test
 import (
 	"bytes"
 	"encoding/json"
-	"os"
-	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/FollowTheProcess/flyio/pkg/msg"
@@ -12,133 +11,32 @@ import (
 	"github.com/FollowTheProcess/test"
 )
 
-func TestHandleInit(t *testing.T) {
+const (
+	initMessage = `{"src": "c1","dest": "n1","body": {"type": "init","msg_id": 1,"node_id": "n1","node_ids": ["n1","n2","n3"]}}` + "\n"
+)
+
+func TestRead(t *testing.T) {
 	stdin := &bytes.Buffer{}
-	stdout := &bytes.Buffer{}
 
-	n := node.New(stdin, stdout)
+	// Fire messages into stdin
+	stdin.Write([]byte(initMessage))
 
-	initBody := msg.Init{
-		NodeID:  "n1",
-		NodeIDs: []string{"n1", "n2", "n3"},
-		Body: msg.Body{
-			Type:      "init",
-			MessageID: 1,
-		},
-	}
+	results := node.Read(stdin)
 
-	body, err := json.Marshal(initBody)
-	test.Ok(t, err)
+	// Should only be one
+	result := <-results
 
-	initMessage := msg.Message{
-		Src:  "c1",
-		Dest: "n1",
-		Body: body,
-	}
+	test.Ok(t, result.Err, "Result contained an error")
+	test.Equal(t, result.Message.Src, "c1")
+	test.Equal(t, result.Message.Dest, "n1")
 
-	// Call handle on the message
-	err = n.Handle(initMessage)
-	test.Ok(t, err, "node.Handle")
+	var init msg.Init
+	test.Ok(t, json.Unmarshal(result.Message.Body, &init))
+	test.Equal(t, init.Type, "init")
+	test.Equal(t, init.MessageID, 1)
+	test.Equal(t, init.NodeID, "n1")
+	test.EqualFunc(t, init.NodeIDs, []string{"n1", "n2", "n3"}, slices.Equal)
 
-	// Stdout should now have an init_ok in it
-	var initOK msg.Message
-
-	err = json.Unmarshal(stdout.Bytes(), &initOK)
-	test.Ok(t, err, "Unmarshal init_ok")
-
-	test.Equal(t, initOK.Src, "n1")
-	test.Equal(t, initOK.Dest, "c1")
-
-	var initOKBody msg.Body
-	err = json.Unmarshal(initOK.Body, &initOKBody)
-	test.Ok(t, err, "Unmarshal init_ok body")
-
-	want := msg.Body{
-		Type:      "init_ok",
-		MessageID: 1,
-		InReplyTo: 1,
-	}
-
-	test.Diff(t, initOKBody, want)
-}
-
-func TestHandleEcho(t *testing.T) {
-	stdin := &bytes.Buffer{}
-	stdout := &bytes.Buffer{}
-
-	n := node.New(stdin, stdout)
-
-	// Manually initialise node rather than provide an init message
-	n.Init("n3", []string{"n1", "n2", "n3"})
-
-	echoBody := msg.Echo{
-		Echo: "Please echo 27",
-		Body: msg.Body{
-			Type:      "echo",
-			MessageID: 69,
-		},
-	}
-
-	body, err := json.Marshal(echoBody)
-	test.Ok(t, err)
-
-	echoMessage := msg.Message{
-		Src:  "c3",
-		Dest: "n3",
-		Body: body,
-	}
-
-	// Call handle on the message
-	err = n.Handle(echoMessage)
-	test.Ok(t, err, "node.Handle")
-
-	// Stdout should now have an echo_ok in it
-	var echoOK msg.Message
-
-	err = json.Unmarshal(stdout.Bytes(), &echoOK)
-	test.Ok(t, err, "Unmarshal echo_ok")
-
-	test.Equal(t, echoOK.Src, "n3")
-	test.Equal(t, echoOK.Dest, "c3")
-
-	var echoOKBody msg.Body
-	err = json.Unmarshal(echoOK.Body, &echoOKBody)
-	test.Ok(t, err, "Unmarshal echo_ok body")
-
-	want := msg.Body{
-		Type:      "echo_ok",
-		MessageID: 1,
-		InReplyTo: 69,
-	}
-
-	test.Diff(t, echoOKBody, want)
-}
-
-func TestNodeRun(t *testing.T) {
-	stdin := &bytes.Buffer{}
-	stdout := &bytes.Buffer{}
-
-	testdata := test.Data(t)
-
-	// Fire message sequences into stdin
-	file := filepath.Join(testdata, "in", "init.jsonl")
-	contents, err := os.ReadFile(file)
-	test.Ok(t, err, "read input jsonl file")
-	_, err = stdin.Write(contents)
-	test.Ok(t, err, "couldn't write to stdin buffer")
-
-	// Run our node
-	n := node.New(stdin, stdout)
-	test.Ok(t, n.Run(), "node.Run() error")
-
-	// Stdout should now contain an init_ok
-	wantFile := filepath.Join(testdata, "out", "init_ok.jsonl")
-	want, err := os.ReadFile(wantFile)
-	test.Ok(t, err, "read expected jsonl")
-
-	// Normalise line endings
-	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
-	got := bytes.ReplaceAll(stdout.Bytes(), []byte("\r\n"), []byte("\n"))
-
-	test.Diff(t, got, want)
+	// This should now be the zero value as the channel should be closed
+	test.Diff(t, <-results, node.Result{})
 }
