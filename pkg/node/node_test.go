@@ -170,14 +170,17 @@ func TestHandleEcho(t *testing.T) {
 	test.Equal(t, reply.Message.Src, "n1")
 	test.Equal(t, reply.Message.Dest, "c1")
 
-	var replyBody msg.Body
+	var replyBody msg.Echo
 	err := json.Unmarshal(reply.Message.Body, &replyBody)
 	test.Ok(t, err)
 
-	want := msg.Body{
-		Type:      "echo_ok",
-		MessageID: 1,
-		InReplyTo: 1,
+	want := msg.Echo{
+		Echo: "Please echo 27",
+		Body: msg.Body{
+			Type:      "echo_ok",
+			MessageID: 1,
+			InReplyTo: 1,
+		},
 	}
 
 	test.Diff(t, replyBody, want)
