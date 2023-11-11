@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -60,25 +61,22 @@ func (n *Node) incrementMessageID() {
 
 // handle handles a stream of messages coming in on the inbound channel, dispatches to the correct
 // handler to generate the reply, and then puts the reply on the replies channel.
-func (n *Node) handle(inputs <-chan result, replies chan<- result) {
-	go func() {
-		for res := range inputs {
-			if res.err != nil {
-				replies <- result{err: fmt.Errorf("Handle: inbound message had an error: %w", res.err)}
-				continue // Next message
-			}
-			switch typ := res.message.Type(); typ {
-			case "init":
-				n.handleInit(res.message, replies)
-			case "echo":
-				n.handleEcho(res.message, replies)
-			default:
-				replies <- result{err: fmt.Errorf("Handle: unhandled message type (%s), message: %+v", typ, res.message)}
-			}
+func (n *Node) handle(inputs <-chan result, replies chan<- result, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for res := range inputs {
+		if res.err != nil {
+			replies <- result{err: fmt.Errorf("Handle: inbound message had an error: %w", res.err)}
+			continue // Next message
 		}
-		// No more messages in, close the replies channel
-		close(replies)
-	}()
+		switch typ := res.message.Type(); typ {
+		case "init":
+			n.handleInit(res.message, replies)
+		case "echo":
+			n.handleEcho(res.message, replies)
+		default:
+			replies <- result{err: fmt.Errorf("Handle: unhandled message type (%s), message: %+v", typ, res.message)}
+		}
+	}
 }
 
 // handleInit handles an incoming init message and puts it's reply on the replies channel.
@@ -170,9 +168,25 @@ func (n *Node) read() <-chan result {
 	return inputs
 }
 
-// write pulls replies from a channel, and writes them to stdout serially in the order
-// they are received in.
-func (n *Node) write(replies <-chan result) error {
+// Run runs the node loop, receiving messages and generating replies.
+func (n *Node) Run() error {
+	var wg sync.WaitGroup
+	replies := make(chan result)
+	inputs := n.read()
+
+	// Fire off a load of concurrent handlers
+	for i := 0; i < runtime.NumCPU(); i++ {
+		wg.Add(1)
+		go n.handle(inputs, replies, &wg)
+	}
+
+	// Wait for them all to complete, then close the replies channel as we know
+	// there will be no more replies if all the handlers have completed
+	go func(wg *sync.WaitGroup) {
+		wg.Wait()
+		close(replies)
+	}(&wg)
+
 	encoder := json.NewEncoder(n.stdout)
 	for reply := range replies {
 		if reply.err != nil {
@@ -182,14 +196,6 @@ func (n *Node) write(replies <-chan result) error {
 			return fmt.Errorf("Write: could not encode reply to JSON: %w", err)
 		}
 	}
+
 	return nil
-}
-
-// Run runs the node loop, receiving messages and generating replies.
-func (n *Node) Run() error {
-	replies := make(chan result)
-	inputs := n.read()
-
-	n.handle(inputs, replies)
-	return n.write(replies)
 }
