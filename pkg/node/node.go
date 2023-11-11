@@ -12,16 +12,18 @@ import (
 	"github.com/FollowTheProcess/flyio/pkg/msg"
 )
 
-// Result is the result of a message processing operation.
-type Result struct {
-	Err     error       // Any error in processing
-	Message msg.Message // The read or written message
+// result is the result of a message processing operation.
+type result struct {
+	err     error       // Any error in processing
+	message msg.Message // The read or written message
 }
 
 // Node is a maelstrom node.
 type Node struct {
-	stdin         io.Reader     // Messages in from the maelstrom network
-	stdout        io.Writer     // Messages out to the network
+	stdin         io.Reader     // Where to read messages in from
+	stdout        io.Writer     // Where to write messages out to
+	in            chan result   // Decoded messages coming in to be handled
+	replies       chan result   // Encoded replies being sent out
 	id            string        // The ID of this node
 	nodeIDs       []string      // The IDs of the nodes in the network (including this one)
 	nextMessageID atomic.Uint64 // Incrementing message ID
@@ -31,8 +33,10 @@ type Node struct {
 // New constructs and returns a new Node.
 func New(stdin io.Reader, stdout io.Writer) *Node {
 	return &Node{
-		stdin:  stdin,
-		stdout: stdout,
+		stdin:   stdin,
+		stdout:  stdout,
+		in:      make(chan result),
+		replies: make(chan result),
 	}
 }
 
@@ -53,58 +57,47 @@ func (n *Node) ID() string {
 	return n.id
 }
 
-// NodeIDs returns the topology of the network, it is safe to call from concurrent goroutines
-// as it acquires a read lock on the NodeIDs.
-func (n *Node) NodeIDs() []string {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-	return n.nodeIDs
-}
-
 // incrementMessageID bumps the message ID atomically by 1.
 func (n *Node) incrementMessageID() {
 	n.nextMessageID.Store(n.nextMessageID.Add(uint64(1)))
 }
 
-// Handle handles a stream of messages coming in on the inbound channel, dispatches to the correct
+// handle handles a stream of messages coming in on the inbound channel, dispatches to the correct
 // handler to generate the reply, and then puts the reply on the replies channel.
-func (n *Node) Handle(inbound <-chan Result, replies chan<- Result) {
+func (n *Node) handle() {
 	go func() {
-		for result := range inbound {
-			if result.Err != nil {
-				replies <- Result{Err: fmt.Errorf("Handle: inbound message had an error: %w", result.Err)}
+		for res := range n.in {
+			if res.err != nil {
+				n.replies <- result{err: fmt.Errorf("Handle: inbound message had an error: %w", res.err)}
 				continue // Next message
 			}
-			switch typ := result.Message.Type(); typ {
+			switch typ := res.message.Type(); typ {
 			case "init":
-				n.handleInit(result.Message, replies)
+				n.handleInit(res.message)
 			case "echo":
-				n.handleEcho(result.Message, replies)
+				n.handleEcho(res.message)
 			default:
-				replies <- Result{Err: fmt.Errorf("Handle: unhandled message type (%s), message: %+v", typ, result.Message)}
+				n.replies <- result{err: fmt.Errorf("Handle: unhandled message type (%s), message: %+v", typ, res.message)}
 			}
 		}
 		// No more messages in, close the replies channel
-		close(replies)
+		close(n.replies)
 	}()
 }
 
 // handleInit handles an incoming init message and puts it's reply on the replies channel.
-func (n *Node) handleInit(message msg.Message, replies chan<- Result) {
+func (n *Node) handleInit(message msg.Message) {
 	var body msg.Init
 	if err := json.Unmarshal(message.Body, &body); err != nil {
-		replies <- Result{Err: fmt.Errorf("handleInit: unmarshal init body: %w", err)}
+		n.replies <- result{err: fmt.Errorf("handleInit: unmarshal init body: %w", err)}
 	}
 	// Initialise our node from the config
 	n.Init(body.NodeID, body.NodeIDs)
-	us := n.ID()
 
 	n.incrementMessageID()
 
 	// Send the reply
 	initOkBody := msg.Init{
-		NodeID:  us,
-		NodeIDs: n.NodeIDs(),
 		Body: msg.Body{
 			Type:      "init_ok",
 			MessageID: int(n.nextMessageID.Load()),
@@ -114,23 +107,23 @@ func (n *Node) handleInit(message msg.Message, replies chan<- Result) {
 
 	replyBody, err := json.Marshal(initOkBody)
 	if err != nil {
-		replies <- Result{Err: fmt.Errorf("handleInit: marshal init_ok body: %w", err)}
+		n.replies <- result{err: fmt.Errorf("handleInit: marshal init_ok body: %w", err)}
 	}
 
 	reply := msg.Message{
-		Src:  us,
+		Src:  n.ID(),
 		Dest: message.Src,
 		Body: replyBody,
 	}
 
-	replies <- Result{Message: reply}
+	n.replies <- result{message: reply}
 }
 
 // handleEcho handles an incoming echo message and put's it's reply on the replies channel.
-func (n *Node) handleEcho(message msg.Message, replies chan<- Result) {
+func (n *Node) handleEcho(message msg.Message) {
 	var body msg.Echo
 	if err := json.Unmarshal(message.Body, &body); err != nil {
-		replies <- Result{Err: fmt.Errorf("handleEcho: unmarshal echo body: %w", err)}
+		n.replies <- result{err: fmt.Errorf("handleEcho: unmarshal echo body: %w", err)}
 	}
 
 	n.incrementMessageID()
@@ -147,7 +140,7 @@ func (n *Node) handleEcho(message msg.Message, replies chan<- Result) {
 
 	replyBody, err := json.Marshal(echoOkBody)
 	if err != nil {
-		replies <- Result{Err: fmt.Errorf("handleEcho: marshal echo_ok body: %w", err)}
+		n.replies <- result{err: fmt.Errorf("handleEcho: marshal echo_ok body: %w", err)}
 	}
 
 	reply := msg.Message{
@@ -156,40 +149,37 @@ func (n *Node) handleEcho(message msg.Message, replies chan<- Result) {
 		Body: replyBody,
 	}
 
-	replies <- Result{Message: reply}
+	n.replies <- result{message: reply}
 }
 
-// Read reads input from stdin, parses into maelstrom messages and puts them on a channel
+// read reads input from stdin, parses into maelstrom messages and puts them on a channel
 // to be consumed.
-func Read(stdin io.Reader) <-chan Result {
-	results := make(chan Result)
+func (n *Node) read() {
 	go func() {
-		scanner := bufio.NewScanner(stdin)
+		scanner := bufio.NewScanner(n.stdin)
 		for scanner.Scan() {
 			var message msg.Message
 			if err := json.Unmarshal(scanner.Bytes(), &message); err != nil {
-				results <- Result{Err: fmt.Errorf("could not decode JSON from stdin: %w", err)}
+				n.in <- result{err: fmt.Errorf("could not decode JSON from stdin: %w", err)}
 			}
-			results <- Result{Message: message}
+			n.in <- result{message: message}
 		}
 		if err := scanner.Err(); err != nil {
-			results <- Result{Err: fmt.Errorf("scanner error: %w", err)}
+			n.in <- result{err: fmt.Errorf("scanner error: %w", err)}
 		}
-		close(results)
+		close(n.in)
 	}()
-
-	return results
 }
 
-// Write pulls replies from a channel, and writes them to stdout serially in the order
+// write pulls replies from a channel, and writes them to stdout serially in the order
 // they are received in.
-func Write(replies <-chan Result, stdout io.Writer) error {
-	encoder := json.NewEncoder(stdout)
-	for reply := range replies {
-		if reply.Err != nil {
-			return fmt.Errorf("Write: reply had an error: %w", reply.Err)
+func (n *Node) write() error {
+	encoder := json.NewEncoder(n.stdout)
+	for reply := range n.replies {
+		if reply.err != nil {
+			return fmt.Errorf("Write: reply had an error: %w", reply.err)
 		}
-		if err := encoder.Encode(reply.Message); err != nil {
+		if err := encoder.Encode(reply.message); err != nil {
 			return fmt.Errorf("Write: could not encode reply to JSON: %w", err)
 		}
 	}
@@ -198,6 +188,8 @@ func Write(replies <-chan Result, stdout io.Writer) error {
 
 // Run runs the node loop, receiving messages and generating replies.
 func (n *Node) Run() error {
-	// TODO: This
-	return nil
+	n.read()
+	// TODO: More than 1 concurrent handler
+	n.handle()
+	return n.write()
 }
