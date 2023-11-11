@@ -78,6 +78,8 @@ func (n *Node) Handle(inbound <-chan Result, replies chan<- Result) {
 			switch typ := result.Message.Type(); typ {
 			case "init":
 				n.handleInit(result.Message, replies)
+			case "echo":
+				n.handleEcho(result.Message, replies)
 			default:
 				replies <- Result{Err: fmt.Errorf("Handle: unhandled message type (%s), message: %+v", typ, result.Message)}
 			}
@@ -117,6 +119,39 @@ func (n *Node) handleInit(message msg.Message, replies chan<- Result) {
 
 	reply := msg.Message{
 		Src:  us,
+		Dest: message.Src,
+		Body: replyBody,
+	}
+
+	replies <- Result{Message: reply}
+}
+
+// handleEcho handles an incoming echo message and put's it's reply on the replies channel.
+func (n *Node) handleEcho(message msg.Message, replies chan<- Result) {
+	var body msg.Echo
+	if err := json.Unmarshal(message.Body, &body); err != nil {
+		replies <- Result{Err: fmt.Errorf("handleEcho: unmarshal echo body: %w", err)}
+	}
+
+	n.incrementMessageID()
+
+	// Send the reply
+	echoOkBody := msg.Echo{
+		Echo: body.Echo,
+		Body: msg.Body{
+			Type:      "echo_ok",
+			MessageID: int(n.nextMessageID.Load()),
+			InReplyTo: body.MessageID,
+		},
+	}
+
+	replyBody, err := json.Marshal(echoOkBody)
+	if err != nil {
+		replies <- Result{Err: fmt.Errorf("handleEcho: marshal echo_ok body: %w", err)}
+	}
+
+	reply := msg.Message{
+		Src:  n.ID(),
 		Dest: message.Src,
 		Body: replyBody,
 	}
