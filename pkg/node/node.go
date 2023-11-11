@@ -74,6 +74,17 @@ func Read(stdin io.Reader) <-chan Result {
 	return results
 }
 
+// Write pulls replies from a channel, and writes them to stdout.
+func Write(replies <-chan msg.Message, stdout io.Writer) error {
+	encoder := json.NewEncoder(stdout)
+	for reply := range replies {
+		if err := encoder.Encode(reply); err != nil {
+			return fmt.Errorf("could not encode reply to JSON: %w", err)
+		}
+	}
+	return nil
+}
+
 // Run runs the node loop, receiving messages and generating replies.
 func (n *Node) Run() error {
 	// TODO: This
