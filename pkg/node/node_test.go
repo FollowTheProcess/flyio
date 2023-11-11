@@ -43,10 +43,14 @@ func TestNodeRun(t *testing.T) {
 			err = n.Run()
 			test.Ok(t, err, "node.Run() returned an error")
 
-			got, err := os.ReadFile(wantFile)
+			want, err := os.ReadFile(wantFile)
 			test.Ok(t, err)
 
-			test.Diff(t, stdout.String(), string(got))
+			// Normalise line endings... stupid windows
+			want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
+			got := bytes.ReplaceAll(stdout.Bytes(), []byte("\r\n"), []byte("\n"))
+
+			test.Diff(t, string(got), string(want))
 		})
 	}
 }
