@@ -125,6 +125,10 @@ func TestHandleInit(t *testing.T) {
 	}
 
 	test.Diff(t, replyBody, want)
+
+	// Replies should now be closed
+	_, ok = <-replies
+	test.False(t, ok)
 }
 
 func TestHandleEcho(t *testing.T) {
@@ -184,4 +188,8 @@ func TestHandleEcho(t *testing.T) {
 	}
 
 	test.Diff(t, replyBody, want)
+
+	// Replies should now be closed
+	_, ok = <-replies
+	test.False(t, ok)
 }
