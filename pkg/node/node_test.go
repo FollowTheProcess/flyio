@@ -3,6 +3,8 @@ package node_test
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/FollowTheProcess/flyio/pkg/msg"
@@ -110,4 +112,33 @@ func TestHandleEcho(t *testing.T) {
 	}
 
 	test.Diff(t, echoOKBody, want)
+}
+
+func TestNodeRun(t *testing.T) {
+	stdin := &bytes.Buffer{}
+	stdout := &bytes.Buffer{}
+
+	testdata := test.Data(t)
+
+	// Fire message sequences into stdin
+	file := filepath.Join(testdata, "in", "init.jsonl")
+	contents, err := os.ReadFile(file)
+	test.Ok(t, err, "read input jsonl file")
+	_, err = stdin.Write(contents)
+	test.Ok(t, err, "couldn't write to stdin buffer")
+
+	// Run our node
+	n := node.New(stdin, stdout)
+	test.Ok(t, n.Run(), "node.Run() error")
+
+	// Stdout should now contain an init_ok
+	wantFile := filepath.Join(testdata, "out", "init_ok.jsonl")
+	want, err := os.ReadFile(wantFile)
+	test.Ok(t, err, "read expected jsonl")
+
+	// Normalise line endings
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
+	got := bytes.ReplaceAll(stdout.Bytes(), []byte("\r\n"), []byte("\n"))
+
+	test.Diff(t, got, want)
 }

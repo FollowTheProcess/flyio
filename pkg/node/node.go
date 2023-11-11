@@ -76,8 +76,6 @@ func (n *Node) Run() error {
 
 // read reads newline separated messages from stdin and puts them on the in channel.
 func (n *Node) read() {
-	n.wg.Add(1)
-	defer n.wg.Done()
 	scanner := bufio.NewScanner(n.stdin)
 	for scanner.Scan() {
 		var message msg.Message
