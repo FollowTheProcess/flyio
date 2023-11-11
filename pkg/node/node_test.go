@@ -136,5 +136,9 @@ func TestNodeRun(t *testing.T) {
 	want, err := os.ReadFile(wantFile)
 	test.Ok(t, err, "read expected jsonl")
 
-	test.Diff(t, stdout.String(), string(want))
+	// Normalise line endings
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
+	got := bytes.ReplaceAll(stdout.Bytes(), []byte("\r\n"), []byte("\n"))
+
+	test.Diff(t, got, want)
 }
