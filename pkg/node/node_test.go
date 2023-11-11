@@ -126,3 +126,59 @@ func TestHandleInit(t *testing.T) {
 
 	test.Diff(t, replyBody, want)
 }
+
+func TestHandleEcho(t *testing.T) {
+	stdin := &bytes.Buffer{}
+	stdout := &bytes.Buffer{}
+
+	n := node.New(stdin, stdout)
+
+	// Fake being initialised
+	n.Init("n1", []string{"n1", "n2", "n3"})
+
+	inbound := make(chan node.Result)
+	replies := make(chan node.Result)
+
+	// Put an echo message on the inbound channel
+	go func() {
+		echo := msg.Echo{
+			Echo: "Please echo 27",
+			Body: msg.Body{
+				Type:      "echo",
+				MessageID: 1,
+			},
+		}
+		echoBody, err := json.Marshal(echo)
+		test.Ok(t, err)
+		inbound <- node.Result{
+			Message: msg.Message{
+				Src:  "c1",
+				Dest: "n1",
+				Body: echoBody,
+			},
+		}
+		close(inbound)
+	}()
+
+	n.Handle(inbound, replies)
+
+	// Read what should be an echo_ok off the replies channel
+	reply, ok := <-replies
+	test.True(t, ok)
+	test.Ok(t, reply.Err)
+
+	test.Equal(t, reply.Message.Src, "n1")
+	test.Equal(t, reply.Message.Dest, "c1")
+
+	var replyBody msg.Body
+	err := json.Unmarshal(reply.Message.Body, &replyBody)
+	test.Ok(t, err)
+
+	want := msg.Body{
+		Type:      "echo_ok",
+		MessageID: 1,
+		InReplyTo: 1,
+	}
+
+	test.Diff(t, replyBody, want)
+}
