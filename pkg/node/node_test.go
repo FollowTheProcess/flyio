@@ -23,12 +23,17 @@ func TestNodeRun(t *testing.T) {
 			name: "init",
 			in:   "init.jsonl",
 			want: "init_ok.jsonl",
-			init: false,
 		},
 		{
 			name: "echo",
 			in:   "echo.jsonl",
 			want: "echo_ok.jsonl",
+			init: true,
+		},
+		{
+			name: "generate",
+			in:   "generate.jsonl",
+			want: "generate_ok.jsonl",
 			init: true,
 		},
 	}
