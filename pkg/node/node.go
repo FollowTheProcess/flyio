@@ -87,6 +87,7 @@ func (n *Node) handleInit(message msg.Message, replies chan<- result) {
 	var body msg.Init
 	if err := json.Unmarshal(message.Body, &body); err != nil {
 		replies <- result{err: fmt.Errorf("handleInit: unmarshal init body: %w", err)}
+		return
 	}
 	// Initialise our node from the config
 	n.Init(body.NodeID, body.NodeIDs)
@@ -105,6 +106,7 @@ func (n *Node) handleInit(message msg.Message, replies chan<- result) {
 	replyBody, err := json.Marshal(initOkBody)
 	if err != nil {
 		replies <- result{err: fmt.Errorf("handleInit: marshal init_ok body: %w", err)}
+		return
 	}
 
 	reply := msg.Message{
@@ -121,6 +123,7 @@ func (n *Node) handleEcho(message msg.Message, replies chan<- result) {
 	var body msg.Echo
 	if err := json.Unmarshal(message.Body, &body); err != nil {
 		replies <- result{err: fmt.Errorf("handleEcho: unmarshal echo body: %w", err)}
+		return
 	}
 
 	n.incrementMessageID()
@@ -138,6 +141,7 @@ func (n *Node) handleEcho(message msg.Message, replies chan<- result) {
 	replyBody, err := json.Marshal(echoOkBody)
 	if err != nil {
 		replies <- result{err: fmt.Errorf("handleEcho: marshal echo_ok body: %w", err)}
+		return
 	}
 
 	reply := msg.Message{
@@ -154,12 +158,19 @@ func (n *Node) handleGenerate(message msg.Message, replies chan<- result) {
 	var body msg.Body
 	if err := json.Unmarshal(message.Body, &body); err != nil {
 		replies <- result{err: fmt.Errorf("handleGenerate: unmarshal generate body: %w", err)}
+		return
 	}
 
 	n.incrementMessageID()
 
+	uid, err := uuid.NewRandom()
+	if err != nil {
+		replies <- result{err: fmt.Errorf("handleGenerate: failed to generate uuid: %w", err)}
+		return
+	}
+
 	generateOkBody := msg.Generate{
-		ID: uuid.NewString(),
+		ID: uid.String(),
 		Body: msg.Body{
 			Type:      "generate_ok",
 			MessageID: int(n.nextMessageID.Load()),
@@ -170,6 +181,7 @@ func (n *Node) handleGenerate(message msg.Message, replies chan<- result) {
 	replyBody, err := json.Marshal(generateOkBody)
 	if err != nil {
 		replies <- result{err: fmt.Errorf("handleGenerate: marshal generate_ok body: %w", err)}
+		return
 	}
 
 	reply := msg.Message{
