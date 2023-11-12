@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 	"testing"
 
 	"github.com/FollowTheProcess/flyio/pkg/node"
 	"github.com/FollowTheProcess/test"
+	"github.com/kinbiko/jsonassert"
 )
 
 func TestNodeRun(t *testing.T) {
@@ -18,16 +17,19 @@ func TestNodeRun(t *testing.T) {
 		name string // Name of the test case
 		in   string // Name of the file relative to testdata/in containing messages into the node
 		want string // Name of the file relative to testdata/out containing expected outputs
+		init bool   // Whether to fake initialise the node, so we don't have to send an init message every time
 	}{
 		{
 			name: "init",
 			in:   "init.jsonl",
 			want: "init_ok.jsonl",
+			init: false,
 		},
 		{
 			name: "echo",
 			in:   "echo.jsonl",
 			want: "echo_ok.jsonl",
+			init: true,
 		},
 	}
 
@@ -42,6 +44,10 @@ func TestNodeRun(t *testing.T) {
 			stdout := &bytes.Buffer{}
 			n := node.New(f, stdout)
 
+			if tt.init {
+				n.Init("n1", []string{"n1", "n2", "n3"})
+			}
+
 			err = n.Run()
 			test.Ok(t, err, "node.Run() returned an error")
 
@@ -52,18 +58,17 @@ func TestNodeRun(t *testing.T) {
 			want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
 			got := bytes.ReplaceAll(stdout.Bytes(), []byte("\r\n"), []byte("\n"))
 
-			// The files will be in order, but since the node handles messages concurrently
-			// there is no guarantee that the order is preserved between message in and reply out
-			// nor need there be as each reply has it's in_reply_to ID. However for the test, we need
-			// deterministic output so we build slices of line separated JSON and sort them, then
-			// compare the sorted slices
-			wantLines := strings.Split(string(want), "\n")
-			gotLines := strings.Split(string(got), "\n")
+			// Each line should be valid JSON
+			wantLines := bytes.Split(want, []byte("\n"))
+			gotLines := bytes.Split(got, []byte("\n"))
 
-			slices.Sort(wantLines)
-			slices.Sort(gotLines)
+			// One JSON line, and a newline at the end
+			test.Equal(t, len(wantLines), 2)
+			test.Equal(t, len(gotLines), 2)
 
-			test.Diff(t, gotLines, wantLines)
+			ja := jsonassert.New(t)
+
+			ja.Assertf(string(gotLines[0]), string(wantLines[0]))
 		})
 	}
 }
