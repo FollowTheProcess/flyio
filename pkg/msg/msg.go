@@ -40,3 +40,9 @@ type Echo struct {
 	Echo string `json:"echo,omitempty"` // The message to echo back
 	Body
 }
+
+// Generate represents a generate message.
+type Generate struct {
+	ID string `json:"id,omitempty"` // The unique ID
+	Body
+}

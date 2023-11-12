@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/FollowTheProcess/flyio/pkg/msg"
+	"github.com/google/uuid"
 )
 
 // result is the result of a message processing operation.
@@ -73,8 +74,10 @@ func (n *Node) handle(inputs <-chan result, replies chan<- result, wg *sync.Wait
 			n.handleInit(res.message, replies)
 		case "echo":
 			n.handleEcho(res.message, replies)
+		case "generate":
+			n.handleGenerate(res.message, replies)
 		default:
-			replies <- result{err: fmt.Errorf("Handle: unhandled message type (%s), message: %+v", typ, res.message)}
+			replies <- result{err: fmt.Errorf("Handle: unhandled message type: %q", typ)}
 		}
 	}
 }
@@ -113,7 +116,7 @@ func (n *Node) handleInit(message msg.Message, replies chan<- result) {
 	replies <- result{message: reply}
 }
 
-// handleEcho handles an incoming echo message and put's it's reply on the replies channel.
+// handleEcho handles an incoming echo message and puts it's reply on the replies channel.
 func (n *Node) handleEcho(message msg.Message, replies chan<- result) {
 	var body msg.Echo
 	if err := json.Unmarshal(message.Body, &body); err != nil {
@@ -135,6 +138,38 @@ func (n *Node) handleEcho(message msg.Message, replies chan<- result) {
 	replyBody, err := json.Marshal(echoOkBody)
 	if err != nil {
 		replies <- result{err: fmt.Errorf("handleEcho: marshal echo_ok body: %w", err)}
+	}
+
+	reply := msg.Message{
+		Src:  n.ID(),
+		Dest: message.Src,
+		Body: replyBody,
+	}
+
+	replies <- result{message: reply}
+}
+
+// handleGenerate handles an incoming generate message and puts it's reply on the replies channel.
+func (n *Node) handleGenerate(message msg.Message, replies chan<- result) {
+	var body msg.Body
+	if err := json.Unmarshal(message.Body, &body); err != nil {
+		replies <- result{err: fmt.Errorf("handleGenerate: unmarshal generate body: %w", err)}
+	}
+
+	n.incrementMessageID()
+
+	generateOkBody := msg.Generate{
+		ID: uuid.NewString(),
+		Body: msg.Body{
+			Type:      "generate_ok",
+			MessageID: int(n.nextMessageID.Load()),
+			InReplyTo: body.MessageID,
+		},
+	}
+
+	replyBody, err := json.Marshal(generateOkBody)
+	if err != nil {
+		replies <- result{err: fmt.Errorf("handleGenerate: marshal generate_ok body: %w", err)}
 	}
 
 	reply := msg.Message{
@@ -181,7 +216,8 @@ func (n *Node) Run() error {
 	}
 
 	// Wait for them all to complete, then close the replies channel as we know
-	// there will be no more replies if all the handlers have completed
+	// there will be no more replies if all the handlers have completed. Note, this is in
+	// a goroutine so it doesn't block pulling from the replies channel below
 	go func(wg *sync.WaitGroup) {
 		wg.Wait()
 		close(replies)
