@@ -104,6 +104,8 @@ func (n *Node) handle(inputs <-chan result, replies chan<- result, wg *sync.Wait
 			n.handleBroadcast(res.message, replies)
 		case "read":
 			n.handleRead(res.message, replies)
+		case "topology":
+			n.handleTopology(res.message, replies)
 		default:
 			replies <- result{err: fmt.Errorf("Handle: unhandled message type: %q", typ)}
 		}
@@ -289,6 +291,42 @@ func (n *Node) handleRead(message msg.Message, replies chan<- result) {
 	replyBody, err := json.Marshal(readOkBody)
 	if err != nil {
 		replies <- result{err: fmt.Errorf("handleRead: marshal read_ok body: %w", err)}
+		return
+	}
+
+	reply := msg.Message{
+		Src:  n.ID(),
+		Dest: message.Src,
+		Body: replyBody,
+	}
+
+	replies <- result{message: reply}
+}
+
+// handleToplogy handles an incoming read message and puts the read_ok reply on the replies channel.
+func (n *Node) handleTopology(message msg.Message, replies chan<- result) {
+	var body msg.Topology
+	if err := json.Unmarshal(message.Body, &body); err != nil {
+		replies <- result{err: fmt.Errorf("handleTopology: unmarshal topology body: %w", err)}
+		return
+	}
+
+	// TODO: We'll have to remember the topology but not yet
+
+	n.incrementMessageID()
+
+	// Add to our set of seen messages
+	n.rememberMessageID(body.MessageID)
+
+	topologyOkBody := msg.Body{
+		Type:      "topology_ok",
+		MessageID: int(n.nextMessageID.Load()),
+		InReplyTo: body.MessageID,
+	}
+
+	replyBody, err := json.Marshal(topologyOkBody)
+	if err != nil {
+		replies <- result{err: fmt.Errorf("handleToplogy: marshal topology_ok body: %w", err)}
 		return
 	}
 

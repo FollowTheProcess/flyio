@@ -1,0 +1,1 @@
+{"src": "c1", "dest": "n1", "body": {"type": "topology", "msg_id": 42, "topology": {"n1": ["n2", "n3"], "n2": ["n1"], "n3": ["n1"]}}}

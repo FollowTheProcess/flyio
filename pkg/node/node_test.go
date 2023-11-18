@@ -50,6 +50,12 @@ func TestNodeRun(t *testing.T) {
 			init: true,
 			seen: []int{1, 2, 3, 4},
 		},
+		{
+			name: "topology",
+			in:   "topology.jsonl",
+			want: "topology_ok.jsonl",
+			init: true,
+		},
 	}
 
 	for _, tt := range tests {
