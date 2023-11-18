@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/FollowTheProcess/collections/set"
 	"github.com/FollowTheProcess/flyio/pkg/msg"
 	"github.com/google/uuid"
 )
@@ -29,6 +30,7 @@ type result struct {
 type Node struct {
 	stdin         io.Reader     // Where to read messages in from
 	stdout        io.Writer     // Where to write messages out to
+	seen          *set.Set[int] // Message IDs this node has seen
 	id            string        // The ID of this node
 	nodeIDs       []string      // The IDs of the nodes in the network (including this one)
 	nextMessageID atomic.Uint64 // Incrementing message ID
@@ -41,6 +43,7 @@ func New(stdin io.Reader, stdout io.Writer) *Node {
 	return &Node{
 		stdin:  stdin,
 		stdout: stdout,
+		seen:   set.New[int](),
 	}
 }
 
@@ -59,6 +62,21 @@ func (n *Node) ID() string {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	return n.id
+}
+
+// SetSeen is a helper used for testing that fools the node into thinking
+// it's seen a list of message IDs.
+func (n *Node) SetSeen(seen ...int) {
+	for _, id := range seen {
+		n.seen.Add(id)
+	}
+}
+
+// rememberMessageID adds a message ID to the set of seen messages.
+func (n *Node) rememberMessageID(id int) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.seen.Add(id)
 }
 
 // incrementMessageID bumps the message ID atomically by 1.
@@ -84,6 +102,8 @@ func (n *Node) handle(inputs <-chan result, replies chan<- result, wg *sync.Wait
 			n.handleGenerate(res.message, replies)
 		case "broadcast":
 			n.handleBroadcast(res.message, replies)
+		case "read":
+			n.handleRead(res.message, replies)
 		default:
 			replies <- result{err: fmt.Errorf("Handle: unhandled message type: %q", typ)}
 		}
@@ -101,6 +121,9 @@ func (n *Node) handleInit(message msg.Message, replies chan<- result) {
 	n.Init(body.NodeID, body.NodeIDs)
 
 	n.incrementMessageID()
+
+	// Add to our set of seen messages
+	n.rememberMessageID(body.MessageID)
 
 	// Send the reply
 	initOkBody := msg.Init{
@@ -135,6 +158,9 @@ func (n *Node) handleEcho(message msg.Message, replies chan<- result) {
 	}
 
 	n.incrementMessageID()
+
+	// Add to our set of seen messages
+	n.rememberMessageID(body.MessageID)
 
 	// Send the reply
 	echoOkBody := msg.Echo{
@@ -171,6 +197,9 @@ func (n *Node) handleGenerate(message msg.Message, replies chan<- result) {
 
 	n.incrementMessageID()
 
+	// Add to our set of seen messages
+	n.rememberMessageID(body.MessageID)
+
 	uid, err := uuid.NewRandom()
 	if err != nil {
 		replies <- result{err: fmt.Errorf("handleGenerate: failed to generate uuid: %w", err)}
@@ -205,11 +234,14 @@ func (n *Node) handleGenerate(message msg.Message, replies chan<- result) {
 func (n *Node) handleBroadcast(message msg.Message, replies chan<- result) {
 	var body msg.Broadcast
 	if err := json.Unmarshal(message.Body, &body); err != nil {
-		replies <- result{err: fmt.Errorf("handleGenerate: unmarshal generate body: %w", err)}
+		replies <- result{err: fmt.Errorf("handleBroadcast: unmarshal broadcast body: %w", err)}
 		return
 	}
 
 	n.incrementMessageID()
+
+	// Add to our set of seen messages
+	n.rememberMessageID(body.MessageID)
 
 	broadcastOkBody := msg.Body{
 		Type:      "broadcast_ok",
@@ -219,7 +251,44 @@ func (n *Node) handleBroadcast(message msg.Message, replies chan<- result) {
 
 	replyBody, err := json.Marshal(broadcastOkBody)
 	if err != nil {
-		replies <- result{err: fmt.Errorf("handleGenerate: marshal generate_ok body: %w", err)}
+		replies <- result{err: fmt.Errorf("handleBroadcast: marshal broadcast_ok body: %w", err)}
+		return
+	}
+
+	reply := msg.Message{
+		Src:  n.ID(),
+		Dest: message.Src,
+		Body: replyBody,
+	}
+
+	replies <- result{message: reply}
+}
+
+// handleRead handles an incoming read message and puts the read_ok reply on the replies channel.
+func (n *Node) handleRead(message msg.Message, replies chan<- result) {
+	var body msg.Body
+	if err := json.Unmarshal(message.Body, &body); err != nil {
+		replies <- result{err: fmt.Errorf("handleRead: unmarshal read body: %w", err)}
+		return
+	}
+
+	n.incrementMessageID()
+
+	// Add to our set of seen messages
+	n.rememberMessageID(body.MessageID)
+
+	readOkBody := msg.ReadOK{
+		Messages: n.seen.Items(),
+		Body: msg.Body{
+			Type:      "read_ok",
+			MessageID: int(n.nextMessageID.Load()),
+			InReplyTo: body.MessageID,
+		},
+	}
+
+	replyBody, err := json.Marshal(readOkBody)
+	if err != nil {
+		replies <- result{err: fmt.Errorf("handleRead: marshal read_ok body: %w", err)}
 		return
 	}
 

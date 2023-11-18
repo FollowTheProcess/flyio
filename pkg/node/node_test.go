@@ -17,6 +17,7 @@ func TestNodeRun(t *testing.T) {
 		name string // Name of the test case
 		in   string // Name of the file relative to testdata/in containing messages into the node
 		want string // Name of the file relative to testdata/out containing expected outputs
+		seen []int  // Message IDs we should fool the node into thinking it's seen
 		init bool   // Whether to fake initialise the node, so we don't have to send an init message every time
 	}{
 		{
@@ -42,6 +43,13 @@ func TestNodeRun(t *testing.T) {
 			want: "broadcast_ok.jsonl",
 			init: true,
 		},
+		{
+			name: "read",
+			in:   "read.jsonl",
+			want: "read_ok.jsonl",
+			init: true,
+			seen: []int{1, 2, 3, 4},
+		},
 	}
 
 	for _, tt := range tests {
@@ -57,6 +65,10 @@ func TestNodeRun(t *testing.T) {
 
 			if tt.init {
 				n.Init("n1", []string{"n1", "n2", "n3"})
+			}
+
+			if len(tt.seen) != 0 {
+				n.SetSeen(tt.seen...)
 			}
 
 			err = n.Run()

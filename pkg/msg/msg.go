@@ -55,7 +55,7 @@ type Broadcast struct {
 
 // ReadOK represents a read_ok message.
 type ReadOK struct {
-	Messages []string `json:"messages,omitempty"` // IDs of all the messages a node has seen
+	Messages []int `json:"messages,omitempty"` // IDs of all the messages a node has seen
 	Body
 }
 

@@ -3,6 +3,7 @@ module github.com/FollowTheProcess/flyio
 go 1.21
 
 require (
+	github.com/FollowTheProcess/collections v0.5.1
 	github.com/FollowTheProcess/test v0.7.0
 	github.com/google/uuid v1.4.0
 	github.com/kinbiko/jsonassert v1.1.1
