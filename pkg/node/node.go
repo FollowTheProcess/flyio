@@ -14,6 +14,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// channelBufferSize is the size of the message buffer on the input and replies channel
+// a max of channelBuffer messages will be read into the inputs channel to be handled
+// thus removing the need to wait for synchronisation between the goroutines.
+const channelBufferSize = 100
+
 // result is the result of a message processing operation.
 type result struct {
 	err     error       // Any error in processing
@@ -32,6 +37,7 @@ type Node struct {
 
 // New constructs and returns a new Node.
 func New(stdin io.Reader, stdout io.Writer) *Node {
+	uuid.EnableRandPool()
 	return &Node{
 		stdin:  stdin,
 		stdout: stdout,
@@ -196,7 +202,7 @@ func (n *Node) handleGenerate(message msg.Message, replies chan<- result) {
 // read reads input from stdin, parses into maelstrom messages and puts them on a channel
 // to be consumed.
 func (n *Node) read() <-chan result {
-	inputs := make(chan result)
+	inputs := make(chan result, channelBufferSize)
 	go func() {
 		scanner := bufio.NewScanner(n.stdin)
 		for scanner.Scan() {
@@ -218,7 +224,7 @@ func (n *Node) read() <-chan result {
 // Run runs the node loop, receiving messages and generating replies.
 func (n *Node) Run() error {
 	var wg sync.WaitGroup
-	replies := make(chan result)
+	replies := make(chan result, channelBufferSize)
 	inputs := n.read()
 
 	// Fire off a load of concurrent handlers
