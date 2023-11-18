@@ -36,6 +36,12 @@ func TestNodeRun(t *testing.T) {
 			want: "generate_ok.jsonl",
 			init: true,
 		},
+		{
+			name: "broadcast",
+			in:   "broadcast.jsonl",
+			want: "broadcast_ok.jsonl",
+			init: true,
+		},
 	}
 
 	for _, tt := range tests {

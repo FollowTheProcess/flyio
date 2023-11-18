@@ -82,6 +82,8 @@ func (n *Node) handle(inputs <-chan result, replies chan<- result, wg *sync.Wait
 			n.handleEcho(res.message, replies)
 		case "generate":
 			n.handleGenerate(res.message, replies)
+		case "broadcast":
+			n.handleBroadcast(res.message, replies)
 		default:
 			replies <- result{err: fmt.Errorf("Handle: unhandled message type: %q", typ)}
 		}
@@ -185,6 +187,37 @@ func (n *Node) handleGenerate(message msg.Message, replies chan<- result) {
 	}
 
 	replyBody, err := json.Marshal(generateOkBody)
+	if err != nil {
+		replies <- result{err: fmt.Errorf("handleGenerate: marshal generate_ok body: %w", err)}
+		return
+	}
+
+	reply := msg.Message{
+		Src:  n.ID(),
+		Dest: message.Src,
+		Body: replyBody,
+	}
+
+	replies <- result{message: reply}
+}
+
+// handleBroadcast handles an incoming broadcast message and puts the broadcast_ok reply on the replies channel.
+func (n *Node) handleBroadcast(message msg.Message, replies chan<- result) {
+	var body msg.Broadcast
+	if err := json.Unmarshal(message.Body, &body); err != nil {
+		replies <- result{err: fmt.Errorf("handleGenerate: unmarshal generate body: %w", err)}
+		return
+	}
+
+	n.incrementMessageID()
+
+	broadcastOkBody := msg.Body{
+		Type:      "broadcast_ok",
+		MessageID: int(n.nextMessageID.Load()),
+		InReplyTo: body.MessageID,
+	}
+
+	replyBody, err := json.Marshal(broadcastOkBody)
 	if err != nil {
 		replies <- result{err: fmt.Errorf("handleGenerate: marshal generate_ok body: %w", err)}
 		return

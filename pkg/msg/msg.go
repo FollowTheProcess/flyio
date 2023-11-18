@@ -46,3 +46,21 @@ type Generate struct {
 	ID string `json:"id,omitempty"` // The unique ID
 	Body
 }
+
+// Broadcast represents a broadcast message.
+type Broadcast struct {
+	Body
+	Message int `json:"message,omitempty"` // The message to broadcast
+}
+
+// ReadOK represents a read_ok message.
+type ReadOK struct {
+	Messages []string `json:"messages,omitempty"` // IDs of all the messages a node has seen
+	Body
+}
+
+// Toplogy represents a topology message.
+type Topology struct {
+	Topology map[string][]string `json:"topology,omitempty"` // Map of node ID to the IDs of it's neighbours
+	Body
+}
