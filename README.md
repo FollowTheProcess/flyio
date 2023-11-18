@@ -26,6 +26,33 @@ Although I'm doing it in Go, I've chosen not to use the provided [maelstrom] lib
   - Multiple goroutines pulling messages off the inbound channel, handling them in parallel, and putting replies on a reply channel
   - A writer goroutine pulling replies from the reply channel and writing them to stdout
 
+## Design
+
+As above, the message handling is split into 3 concurrent concerns:
+
+- Input parsing
+- Message handling
+- Reply writing
+
+```mermaid
+   stateDiagram-v2
+
+    [*] --> Parser : Messages into STDIN
+    state fork_state <<fork>>
+      Parser --> fork_state : Emit parsed messages on a channel
+      fork_state --> Handler1 : Receive from channel
+      fork_state --> Handler2 : Receive from channel
+      fork_state --> Handler3 : Receive from channel
+      fork_state --> HandlerN... : Receive from channel
+
+      state join_state <<join>>
+      Handler1 --> join_state : Write to replies channel
+      Handler2 --> join_state : Write to replies channel
+      Handler3 --> join_state : Write to replies channel
+      HandlerN... --> join_state : Write to replies channel
+      join_state --> [*] : Writer goroutine to STDOUT
+```
+
 [fly.io]: https://fly.io
 [distributed systems challenges]: https://fly.io/dist-sys
 [maelstrom]: https://github.com/jepsen-io/maelstrom
