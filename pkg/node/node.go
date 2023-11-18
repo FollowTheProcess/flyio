@@ -124,9 +124,6 @@ func (n *Node) handleInit(message msg.Message, replies chan<- result) {
 
 	n.incrementMessageID()
 
-	// Add to our set of seen messages
-	n.rememberMessageID(body.MessageID)
-
 	// Send the reply
 	initOkBody := msg.Init{
 		Body: msg.Body{
@@ -160,9 +157,6 @@ func (n *Node) handleEcho(message msg.Message, replies chan<- result) {
 	}
 
 	n.incrementMessageID()
-
-	// Add to our set of seen messages
-	n.rememberMessageID(body.MessageID)
 
 	// Send the reply
 	echoOkBody := msg.Echo{
@@ -198,9 +192,6 @@ func (n *Node) handleGenerate(message msg.Message, replies chan<- result) {
 	}
 
 	n.incrementMessageID()
-
-	// Add to our set of seen messages
-	n.rememberMessageID(body.MessageID)
 
 	uid, err := uuid.NewRandom()
 	if err != nil {
@@ -276,9 +267,6 @@ func (n *Node) handleRead(message msg.Message, replies chan<- result) {
 
 	n.incrementMessageID()
 
-	// Add to our set of seen messages
-	n.rememberMessageID(body.MessageID)
-
 	readOkBody := msg.ReadOK{
 		Messages: n.seen.Items(),
 		Body: msg.Body{
@@ -314,9 +302,6 @@ func (n *Node) handleTopology(message msg.Message, replies chan<- result) {
 	// TODO: We'll have to remember the topology but not yet
 
 	n.incrementMessageID()
-
-	// Add to our set of seen messages
-	n.rememberMessageID(body.MessageID)
 
 	topologyOkBody := msg.Body{
 		Type:      "topology_ok",
